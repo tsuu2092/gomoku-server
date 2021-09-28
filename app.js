@@ -1,20 +1,47 @@
 const express = require('express')
-const path = require('path')
+const cors = require('cors')
 const app = express()
 const server = require('http').Server(app)
-const io = require('socket.io')(server)
-const PORT = process.env.PORT || 3000
+const morgan = require('morgan')
+const mongoose = require('mongoose')
+const dotenv = require('dotenv')
+const socketio = require('socket.io')
+const cookieParser = require('cookie-parser') 
+const appController = require('./core/app.controller')
 
-app.use(express.static('public'))
-
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, "index.html"))
+const io = socketio(server, {
+    cors: {
+        origin: "*"
+    }
 })
 
+dotenv.config()
+const PORT = process.env.PORT || 3000
+const MONGO_URI = process.env.MONGO_URI
+
+app.use(morgan('dev'))
+app.use(cors())
+app.use(express.json())
+app.use(express.urlencoded({
+    extended: true,
+}))
+app.use(cookieParser())
+app.use('/', appController)
+
+
+mongoose.connect(MONGO_URI).then(() => {
+    console.log(`✔ Connected to MongoDB`)
+}).catch(console.log)
+
 io.on('connection', socket => {
-    console.log(`Socket connected ${socket.id}`)
+    const { id } = socket
+    console.log(`Socket connected ${id}`)
+
+    socket.on('disconnect', () => {
+        console.log(`Socket disconnected ${id}`)
+    })
 })
 
 server.listen(PORT, () => {
-    console.log(`✔ Our server is running on http://localhost:${PORT}`)
+    console.log(`✔ Server is running on http://localhost:${PORT}`)
 })
