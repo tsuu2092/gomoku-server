@@ -9,6 +9,10 @@ userController.get('/', async (req, res) => {
     res.json(await User.find({}))
 })
 
+userController.get('/me', auth, async (req, res) => {
+    res.json(await User.findById(req.user?.id))
+})
+
 userController.get('/:id', async (req, res) => {
     const { id } = req.params
     res.json(await User.findById(id))
@@ -16,6 +20,8 @@ userController.get('/:id', async (req, res) => {
 
 userController.post('/', async (req, res, next) => {
     const { username, password } = req.body
+    const user = await User.findOne({ username })
+    if (user) res.status(409).json({ message: `Username ${username} is already taken` })
     try {
         const salt = await bcrypt.genSalt()
         const hashedPassword = await bcrypt.hash(password, salt)

@@ -9,5 +9,4 @@ appController.get('/', (req, res) => {
 
 appController.use('/users', userController)
 appController.use('/auth', authController)
-
 module.exports = appController
