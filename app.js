@@ -28,24 +28,93 @@ mongoose.connect(MONGO_URI).then(() => {
 }).catch(console.log)
 
 const io = socketio(server, { cors: { origin: "*" } })
-const rooms = {}
-let currentRoomId = 1
-io.on('connection', socket => {
-    const { id } = socket
-    console.log(`Socket connected ${id}`)
 
-    socket.emit('lobbyChanged', { rooms })
+const sockets = {}
+const players = {}
+const rooms = {}
+
+let currentRoomId = 1
+
+io.on('connection', socket => {
+    const { id: socketId } = socket
+    console.log(`Socket connected ${socketId}`)
+
+    // Populate lobby data to the connected socket
+    socket.on('requestRooms', () => {
+        socket.emit('roomsChanged', { rooms })
+    })
+
+    socket.on('joinLobby', ({ player }) => {
+        player.roomId = null
+        player.socketId = socketId
+        players[player._id] = player
+        sockets[socketId] = player._id
+        console.log(`Player ${player.username} has join the lobby!`)
+    })
 
     socket.on('disconnect', () => {
-        console.log(`Socket disconnected ${id}`)
+        console.log(`Socket disconnected ${socketId}`)
+        const playerId = sockets[socketId]
+        leaveLobby({ playerId })
+        // Remove from socket list
+        delete sockets[socketId]
     })
+
+    function leaveLobby({ playerId }) {
+        const player = players[playerId]
+        // Leave room
+        leaveRoom({ playerId, roomId: player?.roomId })
+        // Remove player from list
+        console.log(`Player ${player?.username} has left the lobby!`)
+        delete players[playerId]
+    }
+
+    function joinRoom({ player, roomId }) {
+        if (roomId == null) return
+        const room = rooms[roomId]
+        if (!room) return
+
+        // Change data
+        players[player._id].roomId = roomId
+        room.players.push(player)
+
+        // Event
+        socket.join(roomId)
+        socket.emit('joinRoom', { roomId })
+        io.to(roomId).emit('playerJoinRoom', { roomId, player })
+        io.to(roomId).emit('roomPlayersChanged', { players: room.players })
+        io.emit('roomsChanged', { rooms })
+
+        console.log(`Player ${player.username} has entered room ${roomId}`)
+    }
+
+    function leaveRoom({ playerId, roomId }) {
+        if (roomId == null) return
+        const room = rooms[roomId]
+        if (!room) return
+
+        const player = players[playerId]
+
+        // Change data
+        if (player) player.roomId = null
+        room.players = room.players.filter(p => p._id !== playerId)
+        if (room.players.length === 0) {
+            delete rooms[roomId]
+        }
+
+        // Event
+        socket.leave(roomId)
+        socket.emit('leaveRoom')
+        io.to(roomId).emit('playerLeaveRoom', { playerId, username: player.username })
+        io.to(roomId).emit('roomPlayersChanged', { players: room.players })
+        io.emit('roomsChanged', { rooms })
+        console.log(`Player ${player?.username} has left room ${roomId}`)
+    }
 
     socket.on('createRoom', ({ player }) => {
         const roomId = currentRoomId
-        rooms[roomId] = { players: [player] }
-        socket.join(roomId)
-        socket.emit('joinRoom', { roomId })
-        io.emit('lobbyChanged', { rooms })
+        rooms[roomId] = { players: [] }
+        joinRoom({ player, roomId })
         currentRoomId++
     })
 
@@ -57,25 +126,11 @@ io.on('connection', socket => {
             socket.emit('joinRoomFailed', ({ message: "Room is already full!" }))
             return
         }
-        room.players.push(player)
-        socket.join(roomId)
-        socket.emit('joinRoom', { roomId })
-        io.to(roomId).emit('playerJoinRoom', { roomId, player })
-        io.emit('lobbyChanged', { rooms })
+        joinRoom({ player, roomId })
     })
 
-    socket.on('leaveRoom', ({ player, roomId }) => {
-        socket.leave(roomId)
-        socket.emit('leaveRoom')
-        io.to(roomId).emit('playerLeaveRoom', { player })
-        const room = rooms[roomId]
-        if (!room) return
-        console.log(room.players)
-        room.players = room.players.filter(p => p._id !== player._id)
-        if (room.players.length === 0) {
-            delete rooms[roomId]
-        }
-        io.emit('lobbyChanged', { rooms })
+    socket.on('leaveRoom', ({ playerId, roomId }) => {
+        leaveRoom({ playerId, roomId })
     })
 })
 
