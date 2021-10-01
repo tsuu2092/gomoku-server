@@ -24,6 +24,10 @@ app.use(express.urlencoded({
 }))
 app.use(cookieParser())
 app.use('/', appController)
+app.use(function (err, req, res, next) {
+    console.error(err.stack)
+    res.status(500).send(err)
+  })
 
 mongoose.connect(MONGO_URI).then(() => {
     console.log(`✔ Connected to MongoDB`)
@@ -133,7 +137,7 @@ io.on('connection', socket => {
 
     function createRoom({ playerId }) {
         const roomId = currentRoomId
-        rooms[roomId] = { players: [], ready: false }
+        rooms[roomId] = { players: [] }
         joinRoom({ playerId, roomId })
         currentRoomId++
     }
@@ -167,9 +171,9 @@ io.on('connection', socket => {
     socket.on('startGame', ({ roomId }) => {
         const room = rooms[roomId]
         if (!room) return
-        if (!room.ready) return
         if (room.players < 2) return
         io.to(roomId).emit('startGame')
+        console.log('Game started')
     })
 
     socket.on('leaveRoom', ({ playerId, roomId }) => {
