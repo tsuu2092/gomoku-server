@@ -117,7 +117,7 @@ io.on('connection', socket => {
         const player = players[playerId]
         // Change data
         if (player) player.roomId = null
-        console.log(room.players)
+        room.ready = false
         room.players = room.players.filter(p => String(p._id) !== playerId)
         if (room.players.length === 0) {
             delete rooms[roomId]
@@ -131,11 +131,15 @@ io.on('connection', socket => {
         console.log(`Player ${player?.username} has left room ${roomId}`)
     }
 
-    socket.on('createRoom', ({ playerId }) => {
+    function createRoom({ playerId }) {
         const roomId = currentRoomId
-        rooms[roomId] = { players: [] }
+        rooms[roomId] = { players: [], ready: false }
         joinRoom({ playerId, roomId })
         currentRoomId++
+    }
+
+    socket.on('createRoom', ({ playerId }) => {
+        createRoom({ playerId })
     })
 
     socket.on('joinRoom', ({ roomId, playerId }) => {
@@ -146,6 +150,26 @@ io.on('connection', socket => {
             return
         }
         joinRoom({ playerId, roomId })
+    })
+
+    socket.on('ready', ({ roomId }) => {
+        const room = rooms[roomId]
+        if (!room) return
+        io.to(roomId).emit('ready')
+    })
+
+    socket.on('notReady', ({ roomId }) => {
+        const room = rooms[roomId]
+        if (!room) return
+        io.to(roomId).emit('notReady')
+    })
+
+    socket.on('startGame', ({ roomId }) => {
+        const room = rooms[roomId]
+        if (!room) return
+        if (!room.ready) return
+        if (room.players < 2) return
+        io.to(roomId).emit('startGame')
     })
 
     socket.on('leaveRoom', ({ playerId, roomId }) => {
