@@ -9,7 +9,7 @@ const socketio = require('socket.io')
 const cookieParser = require('cookie-parser')
 const appController = require('./core/app.controller')
 const User = require('./core/user/user.schema')
-const getKeyByValue = require('../gomoku-online/src/util/getKeyByValue')
+const getKeyByValue = require('./helpers/getKeyByValue')
 
 
 const PORT = process.env.PORT || 3000
