@@ -8,6 +8,8 @@ const mongoose = require('mongoose')
 const socketio = require('socket.io')
 const cookieParser = require('cookie-parser')
 const appController = require('./core/app.controller')
+const User = require('./core/user/user.schema')
+const getKeyByValue = require('../gomoku-online/src/util/getKeyByValue')
 
 
 const PORT = process.env.PORT || 3000
@@ -44,12 +46,17 @@ io.on('connection', socket => {
         socket.emit('roomsChanged', { rooms })
     })
 
-    socket.on('joinLobby', ({ player }) => {
-        player.roomId = null
-        player.socketId = socketId
-        players[player._id] = player
-        sockets[socketId] = player._id
-        console.log(`Player ${player.username} has join the lobby!`)
+    socket.on('requestJoinLobby', async ({ playerId }) => {
+        sockets[socketId] = playerId
+        // Force disconnect on first socket if a user connects with 2 sockets
+        const playerInLobby = players[playerId]
+        if (playerInLobby) {
+            io.to(playerInLobby.socketId).emit('forceDisconnect')
+            console.log('Forcing disconnect')
+            return
+        }
+        // Init player data
+        await joinLobby({ playerId })
     })
 
     socket.on('disconnect', () => {
@@ -58,7 +65,21 @@ io.on('connection', socket => {
         leaveLobby({ playerId })
         // Remove from socket list
         delete sockets[socketId]
+        // Allow second socket to join lobby if there is any
+        const secondSocketId = getKeyByValue(sockets, playerId)
+        if (secondSocketId) joinLobby({ playerId, otherSocketId: secondSocketId })
     })
+
+    async function joinLobby({ playerId, otherSocketId = null }) {
+        const player = await User.findById(playerId)
+        if (!player) return
+        let targetSocketId = otherSocketId ?? socketId
+        player.roomId = null
+        player.socketId = targetSocketId
+        players[playerId] = player
+        io.to(targetSocketId).emit('joinLobby')
+        console.log(`Player ${player.username} has join the lobby!`)
+    }
 
     function leaveLobby({ playerId }) {
         const player = players[playerId]
@@ -69,13 +90,14 @@ io.on('connection', socket => {
         delete players[playerId]
     }
 
-    function joinRoom({ player, roomId }) {
+    function joinRoom({ playerId, roomId }) {
         if (roomId == null) return
         const room = rooms[roomId]
         if (!room) return
-
+        const player = players[playerId]
+        if (!player) return
         // Change data
-        players[player._id].roomId = roomId
+        player.roomId = roomId
         room.players.push(player)
 
         // Event
@@ -92,16 +114,14 @@ io.on('connection', socket => {
         if (roomId == null) return
         const room = rooms[roomId]
         if (!room) return
-
         const player = players[playerId]
-
         // Change data
         if (player) player.roomId = null
-        room.players = room.players.filter(p => p._id !== playerId)
+        console.log(room.players)
+        room.players = room.players.filter(p => String(p._id) !== playerId)
         if (room.players.length === 0) {
             delete rooms[roomId]
         }
-
         // Event
         socket.leave(roomId)
         socket.emit('leaveRoom')
@@ -111,22 +131,21 @@ io.on('connection', socket => {
         console.log(`Player ${player?.username} has left room ${roomId}`)
     }
 
-    socket.on('createRoom', ({ player }) => {
+    socket.on('createRoom', ({ playerId }) => {
         const roomId = currentRoomId
         rooms[roomId] = { players: [] }
-        joinRoom({ player, roomId })
+        joinRoom({ playerId, roomId })
         currentRoomId++
     })
 
-    socket.on('joinRoom', ({ roomId, player }) => {
-        console.log(roomId)
+    socket.on('joinRoom', ({ roomId, playerId }) => {
         const room = rooms[roomId]
         if (!room) return
         if (room.players.length > 1) {
             socket.emit('joinRoomFailed', ({ message: "Room is already full!" }))
             return
         }
-        joinRoom({ player, roomId })
+        joinRoom({ playerId, roomId })
     })
 
     socket.on('leaveRoom', ({ playerId, roomId }) => {
