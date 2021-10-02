@@ -27,7 +27,7 @@ app.use('/', appController)
 app.use(function (err, req, res, next) {
     console.error(err.stack)
     res.status(500).send(err)
-  })
+})
 
 mongoose.connect(MONGO_URI).then(() => {
     console.log(`✔ Connected to MongoDB`)
@@ -38,6 +38,7 @@ const io = socketio(server, { cors: { origin: "*" } })
 const sockets = {}
 const players = {}
 const rooms = {}
+const X = 'X', O = 'O'
 
 let currentRoomId = 1
 
@@ -75,7 +76,7 @@ io.on('connection', socket => {
     })
 
     async function joinLobby({ playerId, otherSocketId = null }) {
-        const player = await User.findById(playerId)
+        const player = await User.findById(playerId).lean()
         if (!player) return
         let targetSocketId = otherSocketId ?? socketId
         player.roomId = null
@@ -168,19 +169,43 @@ io.on('connection', socket => {
         io.to(roomId).emit('notReady')
     })
 
-    socket.on('startGame', ({ roomId }) => {
-        const room = rooms[roomId]
-        if (!room) return
-        if (room.players < 2) return
-        io.to(roomId).emit('startGame')
-        console.log('Game started')
-    })
-
     socket.on('leaveRoom', ({ playerId, roomId }) => {
         leaveRoom({ playerId, roomId })
     })
-})
 
+    socket.on('startGame', ({ roomId }) => {
+        const room = rooms[roomId]
+        if (!room) return
+        const players = room.players
+        if (players.length < 2) return
+
+        const randomNumber = Math.floor(Math.random() * 2)
+        room.player1stone = randomNumber === 0 ? O : X
+        room.player2stone = randomNumber === 0 ? X : O
+        io.to(players[0].socketId).emit('startGame', { stone: room.player1stone })
+        io.to(players[1].socketId).emit('startGame', { stone: room.player2stone })
+        console.log('Game started')
+    })
+
+    socket.on('move', ({ playerId, r, c, roomId }) => {
+        const room = rooms[roomId]
+        if (!room) return
+        const players = room.players
+        if (players.length < 2) return
+        const { player1stone, player2stone } = room
+        const { _id: player1id, socketId: player1SocketId } = players[0]
+        const { _id: player2id, socketId: player2SocketId } = players[1]
+        console.log(`Move from player ${playerId} at row ${r} column ${c} in room ${roomId}`)
+        //TODO: check valid + save move
+        const isPlayer1 = playerId === String(player1id)
+        io.to(roomId).emit('move', {
+            stone: isPlayer1 ? player1stone : player2stone,
+            r, c,
+        })
+        io.to(isPlayer1 ? player2SocketId : player1SocketId).emit('yourTurn')
+    })
+
+})
 server.listen(PORT, () => {
     console.log(`✔ Server is running on http://localhost:${PORT}`)
 })

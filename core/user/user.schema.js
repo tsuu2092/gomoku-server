@@ -8,7 +8,7 @@ const UserSchema = new Schema({
         required: [true, "Username is required."],
         minlength: [6, "Username must have at least 6 characters"],
         maxlength: [100, "Username cannot have more than 16 characters"],
-        validate: [/^[A-Za-z0-9]+$/,'Username must only contain characters and numbers']
+        validate: [/^[A-Za-z0-9]+$/, 'Username must only contain characters and numbers']
 
     },
     password: {
@@ -25,7 +25,7 @@ const UserSchema = new Schema({
             validator: Number.isInteger,
             message: '{VALUE} is not an integer'
         }
-    }
-})
+    },
+}, { versionKey: false })
 const User = mongoose.model('user', UserSchema, 'users')
 module.exports = User
