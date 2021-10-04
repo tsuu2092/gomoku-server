@@ -10,6 +10,7 @@ const cookieParser = require('cookie-parser')
 const appController = require('./core/app.controller')
 const User = require('./core/user/user.schema')
 const getKeyByValue = require('./helpers/getKeyByValue')
+const { Board, X, O } = require('./board')
 
 
 const PORT = process.env.PORT || 3000
@@ -38,7 +39,6 @@ const io = socketio(server, { cors: { origin: "*" } })
 const sockets = {}
 const players = {}
 const rooms = {}
-const X = 'X', O = 'O'
 
 let currentRoomId = 1
 
@@ -79,6 +79,7 @@ io.on('connection', socket => {
         const player = await User.findById(playerId).lean()
         if (!player) return
         let targetSocketId = otherSocketId ?? socketId
+        player._id = String(player._id)
         player.roomId = null
         player.socketId = targetSocketId
         players[playerId] = player
@@ -109,7 +110,7 @@ io.on('connection', socket => {
         socket.join(roomId)
         socket.emit('joinRoom', { roomId })
         io.to(roomId).emit('playerJoinRoom', { roomId, player })
-        io.to(roomId).emit('roomPlayersChanged', { players: room.players })
+        io.to(roomId).emit('roomPlayersChanged', { players: room.players, board: null })
         io.emit('roomsChanged', { rooms })
 
         console.log(`Player ${player.username} has entered room ${roomId}`)
@@ -178,33 +179,59 @@ io.on('connection', socket => {
         if (!room) return
         const players = room.players
         if (players.length < 2) return
-
-        const randomNumber = Math.floor(Math.random() * 2)
-        room.player1stone = randomNumber === 0 ? O : X
-        room.player2stone = randomNumber === 0 ? X : O
-        io.to(players[0].socketId).emit('startGame', { stone: room.player1stone })
-        io.to(players[1].socketId).emit('startGame', { stone: room.player2stone })
+        room.board = new Board({ player1: players[0]._id, player2: players[1]._id })
+        if (room.board.xPlayer === players[0]._id) {
+            io.to(players[0].socketId).emit('startGame', { stone: X })
+            io.to(players[0].socketId).emit('yourTurn')
+            io.to(players[1].socketId).emit('startGame', { stone: O })
+        } else {
+            io.to(players[1].socketId).emit('startGame', { stone: X })
+            io.to(players[1].socketId).emit('yourTurn')
+            io.to(players[0].socketId).emit('startGame', { stone: O })
+        }
         console.log('Game started')
     })
 
-    socket.on('move', ({ playerId, r, c, roomId }) => {
+    socket.on('move', async ({ playerId, r, c, roomId }) => {
         const room = rooms[roomId]
         if (!room) return
-        const players = room.players
+        const roomPlayers = room.players
         if (players.length < 2) return
-        const { player1stone, player2stone } = room
-        const { _id: player1id, socketId: player1SocketId } = players[0]
-        const { _id: player2id, socketId: player2SocketId } = players[1]
         console.log(`Move from player ${playerId} at row ${r} column ${c} in room ${roomId}`)
-        //TODO: check valid + save move
-        const isPlayer1 = playerId === String(player1id)
-        io.to(roomId).emit('move', {
-            stone: isPlayer1 ? player1stone : player2stone,
-            r, c,
-        })
-        io.to(isPlayer1 ? player2SocketId : player1SocketId).emit('yourTurn')
+        const { board } = room
+        const stone = board.getCurrentStone()
+        if (!board.addMove({ playerId, r, c })) return
+        io.to(roomId).emit('move', { stone, r, c, })
+        const socketId = board.currentTurn === roomPlayers[0]._id ? roomPlayers[0].socketId : roomPlayers[1].socketId
+
+        const { winner, loser } = board
+        if (winner && loser) {
+            io.to(roomId).emit('playerWin', { playerId: winner, username: players[winner].username })
+            await calculateElo({ winner, loser })
+            io.emit('roomsChanged', { rooms })
+            io.to(roomId).emit('roomPlayersChanged', { players: room.players })
+            return
+        }
+        if (board.isDraw()) {
+            io.to(roomId).emit('draw')
+        }
+        io.to(socketId).emit('yourTurn')
     })
 
+    async function calculateElo({ winner, loser }) {
+        const winnerPlayer = await User.findById(winner)
+        const loserPlayer = await User.findById(winner)
+        await User.findByIdAndUpdate(winner, { $inc: { elo: 10 } }, { new: true }).exec().then(doc => {
+            console.log(doc)
+            const player = players[winner]
+            player.elo = doc.elo
+        })
+        await User.findByIdAndUpdate(loser, { $inc: { elo: -10 } }, { new: true }).exec().then(doc => {
+            console.log(doc)
+            const player = players[loser]
+            player.elo = doc.elo
+        })
+    }
 })
 server.listen(PORT, () => {
     console.log(`✔ Server is running on http://localhost:${PORT}`)
