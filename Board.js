@@ -1,4 +1,4 @@
-const clone2D = require("./helpers/clone2d")
+const clone2D = require("./helpers/clone2D")
 
 const X = 'X'
 const O = 'O'
