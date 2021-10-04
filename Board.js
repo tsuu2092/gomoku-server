@@ -92,7 +92,7 @@ class Board {
         const colEnd = clampPosition(originC + 4)
         let currentStreak = 0
         let maxStreak = 0
-        for (let c = colStart; c < colEnd; c++) {
+        for (let c = colStart; c <= colEnd; c++) {
             // Reset to 0 if the cell is not the desired stone
             if (this.data[originR][c] !== stone) {
                 maxStreak = Math.max(currentStreak, maxStreak)
@@ -110,7 +110,7 @@ class Board {
         const rowEnd = clampPosition(originR + 4)
         let currentStreak = 0
         let maxStreak = 0
-        for (let r = rowStart; r < rowEnd; r++) {
+        for (let r = rowStart; r <= rowEnd; r++) {
             // Reset to 0 if the cell is not the desired stone
             if (this.data[r][originC] !== stone) {
                 maxStreak = Math.max(currentStreak, maxStreak)
@@ -126,7 +126,7 @@ class Board {
     hasWinByMainDiagonal({ originR, originC, stone }) {
         let currentStreak = 0
         let maxStreak = 0
-        for (let i = -4; i < 5; i++) {
+        for (let i = -4; i <= 4; i++) {
             const r = originR + i
             const c = originC + i
             if (!isValidPosition(r) || !isValidPosition(c)) continue
@@ -144,7 +144,7 @@ class Board {
     hasWinByCounterDiagonal({ originR, originC, stone }) {
         let currentStreak = 0
         let maxStreak = 0
-        for (let i = -4; i < 5; i++) {
+        for (let i = -4; i <= 4; i++) {
             const r = originR + i
             const c = originC - i
             if (!isValidPosition(r) || !isValidPosition(c)) continue
