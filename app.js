@@ -10,7 +10,7 @@ const cookieParser = require('cookie-parser')
 const appController = require('./core/app.controller')
 const User = require('./core/user/user.schema')
 const getKeyByValue = require('./helpers/getKeyByValue')
-const { Board, X, O } = require('./board')
+const { Board, X, O } = require('./Board')
 
 
 const PORT = process.env.PORT || 3000
