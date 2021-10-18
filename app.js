@@ -41,7 +41,7 @@ const io = socketio(server, { cors: { origin: "*" } })
 const sockets = {}
 const players = {}
 const rooms = {}
-const TIME_PER_MOVE = 5000
+const TIME_PER_MOVE = 10000
 const MAX_LATENCY = 2000
 
 let currentRoomId = 1
