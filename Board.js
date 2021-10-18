@@ -48,6 +48,7 @@ class Board {
         this.winner = null
         this.loser = null
         this.moveCount = 0
+        this.timeoutHandler = null
     }
 
     addMove({ playerId, r, c }) {
@@ -58,7 +59,7 @@ class Board {
         this.moveCount++
         if (this.isDraw()) return true
         this.checkWinner({ stone, r, c })
-        console.log(`Winner ${this.winner}`)
+        // console.log(`Winner ${this.winner}`)
         if (this.winner) return true
         this.switchTurn()
         return true

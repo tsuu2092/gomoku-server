@@ -41,6 +41,8 @@ const io = socketio(server, { cors: { origin: "*" } })
 const sockets = {}
 const players = {}
 const rooms = {}
+const TIME_PER_MOVE = 5000
+const MAX_LATENCY = 2000
 
 let currentRoomId = 1
 
@@ -53,10 +55,12 @@ io.on('connection', socket => {
         socket.emit('roomsChanged', { rooms })
     })
 
+    // Populate online players to the connected socket
     socket.on('requestPlayers', () => {
         socket.emit('playersChanged', { players })
     })
 
+    // Receive join lobby request from client
     socket.on('requestJoinLobby', async ({ playerId }) => {
         sockets[socketId] = playerId
         // Force disconnect on first socket if a user connects with 2 sockets
@@ -80,6 +84,101 @@ io.on('connection', socket => {
         const secondSocketId = getKeyByValue(sockets, playerId)
         if (secondSocketId) joinLobby({ playerId, otherSocketId: secondSocketId })
     })
+
+    socket.on('createRoom', ({ playerId }) => {
+        createRoom({ playerId })
+    })
+
+    socket.on('joinRoom', ({ roomId, playerId }) => {
+        joinRoom({ playerId, roomId })
+    })
+
+    socket.on('ready', ({ roomId }) => {
+        const room = rooms[roomId]
+        if (!room) return
+        io.to(roomId).emit('ready')
+    })
+
+    socket.on('notReady', ({ roomId }) => {
+        const room = rooms[roomId]
+        if (!room) return
+        io.to(roomId).emit('notReady')
+    })
+
+    socket.on('leaveRoom', ({ playerId, roomId }) => {
+        leaveRoom({ playerId, roomId })
+    })
+
+    socket.on('startGame', ({ roomId }) => {
+        const room = rooms[roomId]
+        if (!room) return
+        const { players } = room
+        if (players.length < 2) return
+
+        // Initialize game data
+        room.board = new Board({ player1: players[0]._id, player2: players[1]._id })
+        room.timer = null
+
+        const { xPlayer } = room.board
+        io.to(roomId).emit('startGame', { xPlayer })
+        passTurn({ playerId: xPlayer })
+        console.log('Game started')
+    })
+
+    socket.on('move', async ({ playerId, r, c, roomId }) => {
+        const room = rooms[roomId]
+        if (!room) return
+        const { board, players: roomPlayers } = room
+        if (roomPlayers.length < 2) return
+        // console.log(`Move from player ${playerId} at row ${r} column ${c} in room ${roomId}`)
+        const stone = board.getCurrentStone()
+
+        // If move is invalid then stop the game
+        if (!board.addMove({ playerId, r, c })) return
+
+        // Add move
+        io.to(roomId).emit('move', { stone, r, c, })
+
+        // Check win & draw
+        const { winner, loser, player1, player2 } = board
+        if (winner && loser) {
+            await win({ winner, loser, roomId })
+            return
+        }
+        if (board.isDraw()) {
+            await draw({ p1: player1, p2: player2 })
+            return
+        }
+
+        // Pass turn
+        const { currentTurn } = board
+        passTurn({ playerId: currentTurn })
+    })
+
+    function passTurn({ playerId }) {
+        const player = players[playerId]
+        if (!player) return
+        const { roomId } = player
+        const room = rooms[roomId]
+        if (!room) return
+        const { players: roomPlayers } = room
+
+        const otherPlayerId = roomPlayers[0]._id === playerId ? roomPlayers[1]._id : roomPlayers[0]._id
+
+
+        io.to(roomId).emit('passTurn', { playerId, duration: TIME_PER_MOVE / 1000 })
+
+        // Clear timer of other player
+        clearTimeout(room.timer)
+        // Set timer of current player
+        const handler = async () => {
+            console.log(`Player ${otherPlayerId} win due to timeout`)
+            await win({ winner: otherPlayerId, loser: playerId, roomId })
+        }
+        room.timer = setTimeout(handler, TIME_PER_MOVE + MAX_LATENCY)
+
+    }
+
 
     async function joinLobby({ playerId, otherSocketId = null }) {
         const player = await User.findById(playerId).lean()
@@ -143,7 +242,6 @@ io.on('connection', socket => {
             const { high, low, draw } = calculateEloPreview({ r1, r2 })
             const highEloPlayer = r1 > r2 ? player1 : player2
             const lowEloPlayer = highEloPlayer === player1 ? player2 : player1
-            console.log('elopreview')
             io.to(highEloPlayer.socketId).emit('eloPreview', { win: low, draw: -draw, lose: -high })
             io.to(lowEloPlayer.socketId).emit('eloPreview', { win: high, draw: draw, lose: -low })
         }
@@ -191,72 +289,6 @@ io.on('connection', socket => {
         currentRoomId++
     }
 
-    socket.on('createRoom', ({ playerId }) => {
-        createRoom({ playerId })
-    })
-
-    socket.on('joinRoom', ({ roomId, playerId }) => {
-        joinRoom({ playerId, roomId })
-    })
-
-    socket.on('ready', ({ roomId }) => {
-        const room = rooms[roomId]
-        if (!room) return
-        io.to(roomId).emit('ready')
-    })
-
-    socket.on('notReady', ({ roomId }) => {
-        const room = rooms[roomId]
-        if (!room) return
-        io.to(roomId).emit('notReady')
-    })
-
-    socket.on('leaveRoom', ({ playerId, roomId }) => {
-        leaveRoom({ playerId, roomId })
-    })
-
-    socket.on('startGame', ({ roomId }) => {
-        const room = rooms[roomId]
-        if (!room) return
-        const players = room.players
-        if (players.length < 2) return
-        room.board = new Board({ player1: players[0]._id, player2: players[1]._id })
-        if (room.board.xPlayer === players[0]._id) {
-            io.to(players[0].socketId).emit('startGame', { stone: X })
-            io.to(players[0].socketId).emit('yourTurn')
-            io.to(players[1].socketId).emit('startGame', { stone: O })
-        } else {
-            io.to(players[1].socketId).emit('startGame', { stone: X })
-            io.to(players[1].socketId).emit('yourTurn')
-            io.to(players[0].socketId).emit('startGame', { stone: O })
-        }
-        console.log('Game started')
-    })
-
-    socket.on('move', async ({ playerId, r, c, roomId }) => {
-        const room = rooms[roomId]
-        if (!room) return
-        const roomPlayers = room.players
-        if (roomPlayers.length < 2) return
-        console.log(`Move from player ${playerId} at row ${r} column ${c} in room ${roomId}`)
-        const { board } = room
-        const stone = board.getCurrentStone()
-        // If move is invalid then stop
-        if (!board.addMove({ playerId, r, c })) return
-        io.to(roomId).emit('move', { stone, r, c, })
-        const socketId = board.currentTurn === roomPlayers[0]._id ? roomPlayers[0].socketId : roomPlayers[1].socketId
-
-        const { winner, loser, player1, player2 } = board
-        if (winner && loser) {
-            await win({ winner, loser, roomId })
-            return
-        }
-        if (board.isDraw()) {
-            await draw({ p1: player1, p2: player2 })
-            return
-        }
-        io.to(socketId).emit('yourTurn')
-    })
 
     async function draw({ p1, p2, roomId }) {
         io.to(roomId).emit('draw')
@@ -283,6 +315,12 @@ io.on('connection', socket => {
 
         // Update room
         room.board = null
+
+        // Clear timer
+        clearTimeout(room.timer)
+        room.timer = null
+
+        // Update elo
         previewElo({ roomId })
         io.to(roomId).emit('roomPlayersChanged', { players: room.players })
 
@@ -317,8 +355,6 @@ io.on('connection', socket => {
             const player = players[p2]
             player.elo = doc.elo
         })
-
-
     }
 })
 

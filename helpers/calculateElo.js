@@ -1,4 +1,4 @@
-const K = 30
+const K = 16
 
 // Probability of rating 1 win against rating 2
 function probability(r1, r2) {
@@ -19,7 +19,6 @@ function calculateEloPreview({ r1, r2 }) {
 function calculateElo({ r1, r2, w }) {
     const p1 = probability(r1, r2)
     const p2 = probability(r2, r1)
-    console.log(`Current elo: P1:${r1} P2:${r2}`)
     let newR1 = r1
     let newR2 = r2
     if (w === 1) {
@@ -35,7 +34,6 @@ function calculateElo({ r1, r2, w }) {
     }
     newR1 = Math.round(newR1)
     newR2 = Math.round(newR2)
-    console.log(`New elo: P1:${newR1} P2:${newR2}`)
     return { r1: newR1, r2: newR2 }
 }
 
